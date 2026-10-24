@@ -196,18 +196,46 @@ input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 3px
 <script>
 (function () {
   'use strict';
+  var DB_URL = "https://carnet-de-table-default-rtdb.firebaseio.com/";
   var $ = function (id) { return document.getElementById(id); };
   var state = { tab: 'tested', sort: 'rating', q: '', items: [], open: null };
   var toastTimer = 0;
 
-  var store = {
-    get: function () {
-      try { return JSON.parse(localStorage.getItem('carnet_items')) || []; }
-      catch (_) { return []; }
+  var remote = {
+    getAll: async function () {
+      try {
+        var res = await fetch(DB_URL + "restos.json");
+        var data = await res.json();
+        if (!data) return [];
+        return Object.keys(data).map(function (key) {
+          return Object.assign({ id: key }, data[key]);
+        });
+      } catch (_) { return []; }
     },
-    set: function (items) {
-      try { localStorage.setItem('carnet_items', JSON.stringify(items)); }
-      catch (_) {}
+    add: async function (item) {
+      try {
+        var res = await fetch(DB_URL + "restos.json", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(item)
+        });
+        var data = await res.json();
+        return data.name;
+      } catch (_) { return null; }
+    },
+    update: async function (id, patch) {
+      try {
+        await fetch(DB_URL + "restos/" + id + ".json", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch)
+        });
+      } catch (_) {}
+    },
+    delete: async function (id) {
+      try {
+        await fetch(DB_URL + "restos/" + id + ".json", { method: "DELETE" });
+      } catch (_) {}
     }
   };
 
@@ -290,11 +318,10 @@ input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 3px
   $('s-rating').addEventListener('click', function () { setSort('rating'); });
   $('s-recent').addEventListener('click', function () { setSort('recent'); });
 
-  $('add').addEventListener('submit', function (e) {
+  $('add').addEventListener('submit', async function (e) {
     e.preventDefault();
     var tested = state.tab === 'tested';
     var doc = {
-      id: 'id_' + Date.now(),
       kind: state.tab,
       name: $('f-name').value.trim(),
       city: $('f-city').value.trim(),
@@ -302,12 +329,19 @@ input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 3px
       rating: tested ? addChips.get() : null,
       createdAt: Date.now()
     };
-    state.items.push(doc);
-    store.set(state.items);
-    $('f-name').value = ''; $('f-comment').value = ''; addChips.set(null);
-    toast(tested ? 'Ajouté aux testés' : 'Ajouté à la liste');
-    updateCounts();
-    renderList();
+    $('f-submit').disabled = true;
+    var newId = await remote.add(doc);
+    if (newId) {
+      doc.id = newId;
+      state.items.push(doc);
+      $('f-name').value = ''; $('f-comment').value = ''; addChips.set(null);
+      toast(tested ? 'Ajouté aux testés' : 'Ajouté à la liste');
+      updateCounts();
+      renderList();
+    } else {
+      toast("Erreur lors de l'enregistrement");
+    }
+    validate();
   });
 
   function updateCounts() {
@@ -392,23 +426,29 @@ input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 3px
     nameI.addEventListener('input', syncSave);
     syncSave();
 
-    saveB.addEventListener('click', function () {
-      it.name = nameI.value.trim();
-      it.city = cityI.value.trim();
-      it.comment = comI.value.trim();
-      if (tested) it.rating = rating;
-      else if (rating != null) { it.kind = 'tested'; it.rating = rating; }
-      store.set(state.items);
+    saveB.addEventListener('click', async function () {
+      var patch = {
+        name: nameI.value.trim(),
+        city: cityI.value.trim(),
+        comment: comI.value.trim()
+      };
+      if (tested) patch.rating = rating;
+      else if (rating != null) { patch.kind = 'tested'; patch.rating = rating; }
+      
+      saveB.disabled = true;
+      await remote.update(it.id, patch);
+      Object.assign(it, patch);
       state.open = null;
       toast('Enregistré');
       updateCounts();
       renderList();
     });
 
-    delB.addEventListener('click', function () {
+    delB.addEventListener('click', async function () {
       if (!armed) { armed = true; delB.textContent = 'Confirmer la suppression'; return; }
+      delB.disabled = true;
+      await remote.delete(it.id);
       state.items = state.items.filter(function (x) { return x.id !== it.id; });
-      store.set(state.items);
       state.open = null;
       toast('Supprimé');
       updateCounts();
@@ -425,11 +465,16 @@ input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 3px
       h('div', { class: 'actions' }, saveB, delB));
   }
 
-  function boot() {
-    state.items = store.get();
+  async function boot() {
     applyTab();
+    state.items = await remote.getAll();
     updateCounts();
     renderList();
+    setInterval(async function () {
+      state.items = await remote.getAll();
+      updateCounts();
+      renderList();
+    }, 5000);
   }
   boot();
 })();
