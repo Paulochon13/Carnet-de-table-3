@@ -129,6 +129,11 @@ input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 3px
   padding: 14px 16px 16px; border-top: 1px dashed var(--line);
   display: flex; flex-direction: column; gap: 14px;
 }
+.quick-convert {
+  display: flex; flex-direction: column; gap: 8px; background: var(--soft);
+  padding: 12px; border-radius: 12px; margin-top: 4px;
+}
+.quick-convert span { font: 600 0.8rem var(--font-mono); color: var(--ink); text-transform: uppercase; }
 .actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .actions .primary { flex: 1; min-width: 150px; }
 .empty {
@@ -198,7 +203,7 @@ input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 3px
   'use strict';
   var DB_URL = "https://carnet-de-table-default-rtdb.firebaseio.com/";
   var $ = function (id) { return document.getElementById(id); };
-  var state = { tab: 'tested', sort: 'rating', q: '', items: [], open: null };
+  var state = { tab: 'tested', sort: 'rating', q: '', items: [], open: null, quickRatingId: null };
   var toastTimer = 0;
 
   var remote = {
@@ -300,6 +305,7 @@ input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 3px
     $('f-comment').placeholder = tested ? "Ce qu'on a pris, l'ambiance, la soirée…" : "Qui l'a recommandé, ce qu'il faut goûter…";
     $('f-submit').textContent = tested ? 'Ajouter aux testés' : 'Ajouter à la liste';
     state.open = null;
+    state.quickRatingId = null;
     renderList();
     validate();
   }
@@ -395,7 +401,7 @@ input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 3px
       : h('span', { class: 'tag', text: 'À tester' });
     var head = h('button', {
       type: 'button', class: 'head', 'aria-expanded': String(open),
-      onclick: function () { state.open = open ? null : it.id; renderList(); }
+      onclick: function () { state.open = open ? null : it.id; state.quickRatingId = null; renderList(); }
     },
       h('span', { class: 'line1' }, h('span', { class: 'name', text: it.name || 'Sans nom' }), h('span', { class: 'leader' }), right),
       meta ? h('span', { class: 'meta', text: meta }) : null,
@@ -406,7 +412,64 @@ input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 3px
     return li;
   }
 
+  function convertToTested(it, ratingVal) {
+    var patch = { kind: 'tested', rating: ratingVal, triedAt: Date.now() };
+    remote.update(it.id, patch);
+    Object.assign(it, patch);
+    state.open = null;
+    state.quickRatingId = null;
+    toast('Passé dans les testés !');
+    updateCounts();
+    renderList();
+  }
+
   function panel(it) {
+    var tested = it.kind === 'tested';
+    
+    if (!tested) {
+      var showQuick = state.quickRatingId === it.id;
+      var quickChips = showQuick ? makeChips(null, function (val) {
+        if (val != null) convertToTested(it, val);
+      }) : null;
+
+      var markBtn = h('button', {
+        type: 'button', class: 'primary', text: showQuick ? 'Annuler' : 'Marquer comme testé',
+        onclick: function () {
+          state.quickRatingId = showQuick ? null : it.id;
+          renderList();
+        }
+      });
+
+      var editBtn = h('button', {
+        type: 'button', class: 'secondary', text: 'Modifier',
+        onclick: function () {
+          state.quickRatingId = null;
+          var p = this.closest('.panel');
+          p.querySelector('.full-edit').hidden = false;
+          this.hidden = true;
+        }
+      });
+
+      var quickBox = showQuick ? h('div', { class: 'quick-convert' },
+        h('span', { text: 'Quelle note attribues-tu ?' }),
+        quickChips.el
+      ) : null;
+
+      var fullEditForm = buildFullEditForm(it);
+      fullEditForm.hidden = true;
+      fullEditForm.className = 'full-edit';
+
+      return h('div', { class: 'panel' },
+        h('div', { class: 'actions' }, markBtn, editBtn),
+        quickBox,
+        fullEditForm
+      );
+    }
+
+    return h('div', { class: 'panel' }, buildFullEditForm(it));
+  }
+
+  function buildFullEditForm(it) {
     var tested = it.kind === 'tested';
     var rating = it.rating || null;
     var chips = makeChips(rating, function (v) { rating = v; syncSave(); });
@@ -455,7 +518,7 @@ input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 3px
       renderList();
     });
 
-    return h('div', { class: 'panel' },
+    return h('div', { style: 'display:flex;flex-direction:column;gap:14px;' },
       h('div', { class: 'row2' },
         h('label', { class: 'field' }, h('span', { text: 'Restaurant' }), nameI),
         h('label', { class: 'field' }, h('span', { text: 'Ville' }), cityI)),
