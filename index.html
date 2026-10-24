@@ -10,32 +10,18 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=DM+Mono:wght@400;500&family=Hanken+Grotesk:wght@400;500;600;700&display=swap">
 <style>
 :root {
-  --bg: #EEF0EC;
-  --surface: #FFFFFF;
-  --ink: #18201C;
-  --muted: #5B675F;
-  --line: #CDD3CB;
-  --soft: #E2E6DF;
-  --accent: #EAB308;
+  --bg: #0F172A;
+  --surface: #1E293B;
+  --ink: #F8FAFC;
+  --muted: #94A3B8;
+  --line: #334155;
+  --soft: #334155;
+  --accent: #FACC15;
   --accent-ink: #0F172A;
-  --focus: #1B5FD1;
+  --focus: #38BDF8;
   --font-display: "Bricolage Grotesque", "Trebuchet MS", system-ui, sans-serif;
   --font-body: "Hanken Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "DM Mono", ui-monospace, "SF Mono", Menlo, monospace;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #0F172A;
-    --surface: #1E293B;
-    --ink: #F8FAFC;
-    --muted: #94A3B8;
-    --line: #334155;
-    --soft: #334155;
-    --accent: #FACC15;
-    --accent-ink: #0F172A;
-    --focus: #38BDF8;
-    color-scheme: dark;
-  }
 }
 * { box-sizing: border-box; }
 body {
@@ -54,6 +40,15 @@ h1 {
   text-wrap: balance;
 }
 .sub { margin: 4px 0 0; color: var(--muted); font-size: 0.95rem; }
+
+.user-banner {
+  display: flex; justify-content: space-between; align-items: center;
+  background: var(--surface); padding: 8px 14px; border-radius: 10px;
+  border: 1px solid var(--line); font: 500 0.85rem var(--font-mono); color: var(--muted);
+}
+.user-banner button {
+  background: transparent; border: 0; color: var(--accent); cursor: pointer; font: inherit; text-decoration: underline;
+}
 
 .tabs { display: flex; gap: 4px; padding: 4px; background: var(--soft); border-radius: 14px; }
 .tab {
@@ -159,6 +154,11 @@ input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 3px
     <p class="sub">Les restos où on a mangé, notés sur 10, et ceux qu'on veut tester.</p>
   </header>
 
+  <div class="user-banner">
+    <span>Auteur : <strong id="author-name" style="color:var(--ink)">Anonyme</strong></span>
+    <button type="button" id="change-author">Changer</button>
+  </div>
+
   <div class="tabs" role="tablist" aria-label="Liste">
     <button class="tab" id="tab-tested" role="tab" type="button" aria-selected="true">Testés <span class="count" id="c-tested">0</span></button>
     <button class="tab" id="tab-wish" role="tab" type="button" aria-selected="false">À tester <span class="count" id="c-wish">0</span></button>
@@ -203,8 +203,28 @@ input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 3px
   'use strict';
   var DB_URL = "https://carnet-de-table-default-rtdb.firebaseio.com/";
   var $ = function (id) { return document.getElementById(id); };
-  var state = { tab: 'tested', sort: 'rating', q: '', items: [], open: null, quickRatingId: null };
+  var state = { tab: 'tested', sort: 'rating', q: '', items: [], open: null, quickRatingId: null, author: '' };
   var toastTimer = 0;
+
+  function initAuthor() {
+    var saved = localStorage.getItem('carnet_author');
+    if (!saved) {
+      saved = prompt("Quel est ton prénom / surnom ?") || "Anonyme";
+      saved = saved.trim() || "Anonyme";
+      localStorage.setItem('carnet_author', saved);
+    }
+    state.author = saved;
+    $('author-name').textContent = saved;
+  }
+
+  $('change-author').addEventListener('click', function () {
+    var newName = prompt("Nouveau prénom / surnom :", state.author);
+    if (newName && newName.trim()) {
+      state.author = newName.trim();
+      localStorage.setItem('carnet_author', state.author);
+      $('author-name').textContent = state.author;
+    }
+  });
 
   var remote = {
     getAll: async function () {
@@ -333,6 +353,7 @@ input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 3px
       city: $('f-city').value.trim(),
       comment: $('f-comment').value.trim(),
       rating: tested ? addChips.get() : null,
+      author: state.author,
       createdAt: Date.now()
     };
     $('f-submit').disabled = true;
@@ -370,7 +391,7 @@ input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 3px
     var all = state.items.filter(function (i) { return i.kind === kind; });
     var items = all.filter(function (i) {
       if (!state.q) return true;
-      return ((i.name || '') + ' ' + (i.city || '') + ' ' + (i.comment || '')).toLowerCase().indexOf(state.q) !== -1;
+      return ((i.name || '') + ' ' + (i.city || '') + ' ' + (i.comment || '') + ' ' + (i.author || '')).toLowerCase().indexOf(state.q) !== -1;
     });
     items.sort(function (a, b) {
       if (kind === 'tested' && state.sort === 'rating') {
@@ -394,7 +415,8 @@ input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 3px
 
   function card(it) {
     var open = state.open === it.id;
-    var meta = [it.city, fmtDate(it.createdAt)].filter(Boolean).join(' · ');
+    var authorStr = it.author ? 'par ' + it.author : '';
+    var meta = [it.city, fmtDate(it.createdAt), authorStr].filter(Boolean).join(' · ');
     var tested = it.kind === 'tested';
     var right = tested
       ? h('span', { class: 'score' + (it.rating >= 8 ? ' top' : '') }, String(it.rating || '–'), h('small', { text: '/10' }))
@@ -529,6 +551,7 @@ input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 3px
   }
 
   async function boot() {
+    initAuthor();
     applyTab();
     state.items = await remote.getAll();
     updateCounts();
