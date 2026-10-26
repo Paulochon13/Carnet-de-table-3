@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <style>[hidden]{display:none!important}body{margin:0}</style>
 <title>Carnet de tables</title>
+<link rel="apple-touch-icon" href="https://paulochon13.github.io/Carnet-de-table-3/icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=DM+Mono:wght@400;500&family=Hanken+Grotesk:wght@400;500;600;700&display=swap">
@@ -76,9 +77,10 @@ textarea { resize: vertical; min-height: 72px; }
 input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 
 .chips { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+.chips-price { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .chip {
   min-height: 46px; border: 1.5px solid var(--line); border-radius: 10px;
-  background: var(--bg); color: var(--ink); font: 500 1.05rem var(--font-mono); cursor: pointer;
+  background: var(--bg); color: var(--ink); font: 500 0.95rem var(--font-mono); cursor: pointer;
 }
 .chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 
@@ -174,6 +176,12 @@ input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 3px
         <datalist id="cities"></datalist>
       </label>
     </div>
+    
+    <div class="field">
+      <span>Tranche de prix</span>
+      <div id="f-price-chips" class="chips-price" role="group"></div>
+    </div>
+
     <div class="field" id="f-rating-wrap">
       <span id="f-rating-label">Note sur 10</span>
       <div id="f-chips" aria-labelledby="f-rating-label" role="group"></div>
@@ -305,8 +313,26 @@ input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 3px
     return { el: wrap, get: function () { return val; }, set: function (v) { val = v; sync(); } };
   }
 
+  function makePriceChips(initial, onChange) {
+    var val = initial || null;
+    var wrap = h('div', { class: 'chips-price', role: 'group' });
+    var labels = ['0-10€', '10-20€', '20-30€', '30€+'];
+    var btns = [];
+    function sync() { btns.forEach(function (b, i) { b.setAttribute('aria-pressed', String(labels[i] === val)); }); }
+    labels.forEach(function (lbl) {
+      var b = h('button', {
+        type: 'button', class: 'chip', text: lbl, 'aria-pressed': String(lbl === val),
+        onclick: function () { val = (val === lbl) ? null : lbl; sync(); if (onChange) onChange(val); }
+      });
+      btns.push(b); wrap.append(b);
+    });
+    return { el: wrap, get: function () { return val; }, set: function (v) { val = v; sync(); } };
+  }
+
   var addChips = makeChips(null, function () { validate(); });
+  var addPriceChips = makePriceChips(null, function () { validate(); });
   $('f-chips').append(addChips.el);
+  $('f-price-chips').append(addPriceChips.el);
 
   function validate() {
     var tested = state.tab === 'tested';
@@ -351,6 +377,7 @@ input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 3px
       kind: state.tab,
       name: $('f-name').value.trim(),
       city: $('f-city').value.trim(),
+      price: addPriceChips.get() || null,
       comment: $('f-comment').value.trim(),
       rating: tested ? addChips.get() : null,
       author: state.author,
@@ -361,7 +388,7 @@ input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 3px
     if (newId) {
       doc.id = newId;
       state.items.push(doc);
-      $('f-name').value = ''; $('f-comment').value = ''; addChips.set(null);
+      $('f-name').value = ''; $('f-comment').value = ''; addChips.set(null); addPriceChips.set(null);
       toast(tested ? 'Ajouté aux testés' : 'Ajouté à la liste');
       updateCounts();
       renderList();
@@ -391,7 +418,7 @@ input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 3px
     var all = state.items.filter(function (i) { return i.kind === kind; });
     var items = all.filter(function (i) {
       if (!state.q) return true;
-      return ((i.name || '') + ' ' + (i.city || '') + ' ' + (i.comment || '') + ' ' + (i.author || '')).toLowerCase().indexOf(state.q) !== -1;
+      return ((i.name || '') + ' ' + (i.city || '') + ' ' + (i.comment || '') + ' ' + (i.author || '') + ' ' + (i.price || '')).toLowerCase().indexOf(state.q) !== -1;
     });
     items.sort(function (a, b) {
       if (kind === 'tested' && state.sort === 'rating') {
@@ -416,7 +443,7 @@ input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 3px
   function card(it) {
     var open = state.open === it.id;
     var authorStr = it.author ? 'par ' + it.author : '';
-    var meta = [it.city, fmtDate(it.createdAt), authorStr].filter(Boolean).join(' · ');
+    var meta = [it.price, it.city, fmtDate(it.createdAt), authorStr].filter(Boolean).join(' · ');
     var tested = it.kind === 'tested';
     var right = tested
       ? h('span', { class: 'score' + (it.rating >= 8 ? ' top' : '') }, String(it.rating || '–'), h('small', { text: '/10' }))
@@ -494,7 +521,10 @@ input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 3px
   function buildFullEditForm(it) {
     var tested = it.kind === 'tested';
     var rating = it.rating || null;
+    var price = it.price || null;
     var chips = makeChips(rating, function (v) { rating = v; syncSave(); });
+    var priceChips = makePriceChips(price, function (v) { price = v; syncSave(); });
+    
     var nameI = h('input', { value: it.name || '', maxlength: '80' });
     var cityI = h('input', { value: it.city || '', maxlength: '60', list: 'cities' });
     var comI = h('textarea', { rows: '3', maxlength: '500' });
@@ -515,6 +545,7 @@ input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 3px
       var patch = {
         name: nameI.value.trim(),
         city: cityI.value.trim(),
+        price: price,
         comment: comI.value.trim()
       };
       if (tested) patch.rating = rating;
@@ -545,6 +576,8 @@ input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 3px
         h('label', { class: 'field' }, h('span', { text: 'Restaurant' }), nameI),
         h('label', { class: 'field' }, h('span', { text: 'Ville' }), cityI)),
       h('div', { class: 'field' },
+        h('span', { class: 'label', text: 'Tranche de prix' }), priceChips.el),
+      h('div', { class: 'field' },
         h('span', { class: 'label', text: tested ? 'Note sur 10' : 'Déjà testé ? Donne une note' }), chips.el),
       h('label', { class: 'field' }, h('span', { text: tested ? 'Le repas, un souvenir' : 'Pourquoi on veut y aller' }), comI),
       h('div', { class: 'actions' }, saveB, delB));
@@ -557,9 +590,12 @@ input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 3px
     updateCounts();
     renderList();
     setInterval(async function () {
-      state.items = await remote.getAll();
-      updateCounts();
-      renderList();
+      var isEditing = state.open !== null || document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA';
+      if (!isEditing) {
+        state.items = await remote.getAll();
+        updateCounts();
+        renderList();
+      }
     }, 5000);
   }
   boot();
